@@ -13,22 +13,34 @@ HEADERS = {
 
 API_BASE = "https://api.nike.com"
 CONSUMER_CHANNEL = "d9a5bc42-4b9c-4976-858a-f159cf99c647"
-BASE_WALL = f"/discover/product_wall/v1/marketplace/US/language/en/consumerChannelId/{CONSUMER_CHANNEL}"
 
-# These URL patterns were extracted from Nike's own __NEXT_DATA__ API responses.
-# The path and attributeIds are stable identifiers for the sale + gender categories.
+def _wall_url(marketplace, language, path, attribute_ids):
+    base = f"/discover/product_wall/v1/marketplace/{marketplace}/language/{language}/consumerChannelId/{CONSUMER_CHANNEL}"
+    return f"{base}?path={path}&attributeIds={attribute_ids}&queryType=PRODUCTS&count=24&anchor=0"
+
+# Each entry: (api_start_url, gender, country_label, currency_symbol, site_base_url)
 SALE_CATEGORIES = [
+    # --- United States ---
     (
-        f"{BASE_WALL}?path=/w/mens-sale-3yaepznik1"
-        f"&attributeIds=0f64ecc7-d624-4e91-b171-b83a03dd8550,5b21a62a-0503-400c-8336-3ccfbff2a684"
-        f"&queryType=PRODUCTS&count=24&anchor=0",
-        "Men",
+        _wall_url("US", "en", "/w/mens-sale-3yaepznik1",
+                  "0f64ecc7-d624-4e91-b171-b83a03dd8550,5b21a62a-0503-400c-8336-3ccfbff2a684"),
+        "Men", "US", "$", "https://www.nike.com",
     ),
     (
-        f"{BASE_WALL}?path=/w/sale-3yaep"
-        f"&attributeIds=5b21a62a-0503-400c-8336-3ccfbff2a684"
-        f"&queryType=PRODUCTS&count=24&anchor=0",
-        "Women",
+        _wall_url("US", "en", "/w/sale-3yaep",
+                  "5b21a62a-0503-400c-8336-3ccfbff2a684"),
+        "Women", "US", "$", "https://www.nike.com",
+    ),
+    # --- India ---
+    (
+        _wall_url("IN", "en-GB", "/in/w/mens-sale-3yaepznik1",
+                  "0f64ecc7-d624-4e91-b171-b83a03dd8550,5b21a62a-0503-400c-8336-3ccfbff2a684"),
+        "Men", "IN", "₹", "https://www.nike.com/in",
+    ),
+    (
+        _wall_url("IN", "en-GB", "/in/w/sale-3yaep",
+                  "5b21a62a-0503-400c-8336-3ccfbff2a684"),
+        "Women", "IN", "₹", "https://www.nike.com/in",
     ),
 ]
 
@@ -44,7 +56,7 @@ def _parse_gender(subtitle, fallback_gender="Unisex"):
     return fallback_gender
 
 
-def _parse_groupings(groupings, fallback_gender="Unisex"):
+def _parse_groupings(groupings, fallback_gender, country, currency_symbol, site_base):
     products = []
     for group in groupings:
         for p in group.get("products", []):
@@ -64,6 +76,8 @@ def _parse_groupings(groupings, fallback_gender="Unisex"):
                 pdp = p.get("pdpUrl", "")
                 if isinstance(pdp, dict):
                     pdp = pdp.get("url") or pdp.get("path") or ""
+                if not pdp.startswith("http"):
+                    pdp = f"{site_base}{pdp}"
                 products.append({
                     "brand": "Nike",
                     "name": name,
@@ -71,64 +85,59 @@ def _parse_groupings(groupings, fallback_gender="Unisex"):
                     "original_price": round(float(initial), 2),
                     "sale_price": round(float(current), 2),
                     "discount_pct": discount,
-                    "url": pdp if pdp.startswith("http") else f"https://www.nike.com{pdp}",
+                    "url": pdp,
                     "category": p.get("productType", ""),
                     "gender": _parse_gender(subtitle, fallback_gender),
                     "sizes": [],
-                    "_id": p.get("productCode") or p.get("globalProductId") or name,
+                    "country": country,
+                    "currency_symbol": currency_symbol,
+                    "_id": f"{country}_{p.get('productCode') or p.get('globalProductId') or name}",
                 })
             except Exception:
                 continue
     return products
 
 
-def _fetch_page(api_path, gender):
-    """Fetch a single paginated API page and return its products."""
+def _fetch_page(api_path, gender, country, currency_symbol, site_base):
     try:
         r = requests.get(API_BASE + api_path, headers=HEADERS, timeout=15)
         if r.status_code != 200:
             return []
-        return _parse_groupings(r.json().get("productGroupings", []), gender)
+        return _parse_groupings(r.json().get("productGroupings", []), gender, country, currency_symbol, site_base)
     except Exception:
         return []
 
 
-def _fetch_category(start_api_path, gender):
-    """
-    Fetch all products for a sale category directly via the Nike product wall API.
-    No HTML scraping needed — works from cloud server IPs.
-    """
+def _fetch_category(start_api_path, gender, country, currency_symbol, site_base):
     products = []
 
-    # Page 1 (anchor=0) — fetch directly from the API
     try:
         r = requests.get(API_BASE + start_api_path, headers=HEADERS, timeout=15)
         if r.status_code != 200:
-            print(f"Nike {gender} page 1 error: HTTP {r.status_code}")
+            print(f"Nike {country}/{gender} page 1 error: HTTP {r.status_code}")
             return products
         d = r.json()
-        products.extend(_parse_groupings(d.get("productGroupings", []), gender))
+        products.extend(_parse_groupings(d.get("productGroupings", []), gender, country, currency_symbol, site_base))
 
         pages = d.get("pages", {})
         total_resources = pages.get("totalResources", 0)
         next_path = pages.get("next", "")
     except Exception as e:
-        print(f"Nike {gender} initial load error: {e}")
+        print(f"Nike {country}/{gender} initial load error: {e}")
         return products
 
     if not next_path or not total_resources:
         return products
 
-    # Build all remaining page URLs from anchor=24 upward
     count = 24
     base_url = next_path.split("anchor=")[0]
     anchors = list(range(24, total_resources, count))
-
-    print(f"Nike {gender}: {total_resources} total, fetching {len(anchors)} more pages concurrently")
+    print(f"Nike {country}/{gender}: {total_resources} total, {len(anchors)} pages to fetch")
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(_fetch_page, f"{base_url}anchor={anchor}&count={count}", gender): anchor
+            executor.submit(_fetch_page, f"{base_url}anchor={anchor}&count={count}",
+                            gender, country, currency_symbol, site_base): anchor
             for anchor in anchors
         }
         for future in as_completed(futures):
@@ -141,8 +150,8 @@ def fetch_sale_products():
     seen = set()
     all_products = []
 
-    for api_path, gender in SALE_CATEGORIES:
-        items = _fetch_category(api_path, gender)
+    for api_path, gender, country, currency_symbol, site_base in SALE_CATEGORIES:
+        items = _fetch_category(api_path, gender, country, currency_symbol, site_base)
         for p in items:
             uid = p.pop("_id", p["name"])
             if uid not in seen:

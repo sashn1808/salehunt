@@ -165,6 +165,15 @@
       </div>
 
       <div class="sidebar-section">
+        <div class="sidebar-label">Country</div>
+        <div class="flex flex-col gap-1">
+          <button class="fpill active text-left" data-filter="country" data-value="all" onclick="setFilter('country','all',this)">🌍 All Countries</button>
+          <button class="fpill text-left" data-filter="country" data-value="US" onclick="setFilter('country','US',this)">🇺🇸 United States</button>
+          <button class="fpill text-left" data-filter="country" data-value="IN" onclick="setFilter('country','IN',this)">🇮🇳 India</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
         <div class="sidebar-label">Brand</div>
         <div class="flex flex-col gap-1">
           <button class="fpill active text-left" data-filter="brand" data-value="all" onclick="setFilter('brand','all',this)">All Brands</button>
@@ -207,6 +216,11 @@
 
     <!-- Mobile filter bar -->
     <div class="lg:hidden flex gap-2 overflow-x-auto no-scroll pb-1 mb-3">
+      <select onchange="setFilter('country',this.value,null)" class="fpill border-gray-200 flex-shrink-0 bg-white" id="mob-country">
+        <option value="all">🌍 All Countries</option>
+        <option value="US">🇺🇸 US</option>
+        <option value="IN">🇮🇳 India</option>
+      </select>
       <select onchange="setFilter('brand',this.value,null)" class="fpill border-gray-200 flex-shrink-0 bg-white" id="mob-brand">
         <option value="all">All Brands</option>
         <option value="Nike">Nike</option>
@@ -282,17 +296,20 @@
 <script>
   const PER_PAGE = 48;
   let allProducts = [], filtered = [];
+  // ── Config ────────────────────────────────────
+  const API = 'https://salehunt-2c59.onrender.com'; // Render backend URL
+
   let currentPage = 1;
-  let activeFilters = { brand:'all', gender:'all', size:'all', cat:'all' };
+  let activeFilters = { country:'all', brand:'all', gender:'all', size:'all', cat:'all' };
   let activeDisc = 0;
   let searchQ = '';
 
   // ── Load ──────────────────────────────────────
   async function loadProducts(forceRefresh=false) {
-    if (forceRefresh) { await fetch('/api/cache/clear'); showToast('Fetching fresh deals…'); }
+    if (forceRefresh) { await fetch(`${API}/api/cache/clear`); showToast('Fetching fresh deals…'); }
     setLoading(true);
     try {
-      const res = await fetch('/api/products');
+      const res = await fetch(`${API}/api/products`);
       const data = await res.json();
       allProducts = data.products || [];
       if (data.errors && Object.keys(data.errors).length) {
@@ -352,6 +369,7 @@
 
   function getFiltered({ skipSize=false } = {}) {
     return allProducts.filter(p => {
+      if (activeFilters.country !== 'all' && (p.country||'US') !== activeFilters.country) return false;
       if (activeFilters.brand !== 'all' && p.brand !== activeFilters.brand) return false;
       if (activeFilters.gender !== 'all' && p.gender !== activeFilters.gender) return false;
       if (activeFilters.cat !== 'all' && (p.category||'').toUpperCase() !== activeFilters.cat) return false;
@@ -430,6 +448,7 @@
   }
 
   function cardHTML(p) {
+    const sym = p.currency_symbol || '$';
     const saving = (p.original_price - p.sale_price).toFixed(0);
     const discClass = p.discount_pct >= 50 ? 'disc-high' : p.discount_pct >= 35 ? 'disc-mid' : 'disc-low';
     const brandColor = p.brand === 'Reebok'
@@ -437,6 +456,7 @@
       : 'background:#f3f4f6;color:#111827';
     const genderTag = p.gender && p.gender !== 'Unisex'
       ? `<span class="text-xs text-gray-400 font-semibold">${esc(p.gender)}</span>` : '';
+    const countryFlag = p.country === 'IN' ? '🇮🇳' : '';
     const img = p.image
       ? `<img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
         + `<div style="display:none" class="absolute inset-0 items-center justify-center text-5xl bg-gray-100">👟</div>`
@@ -448,8 +468,9 @@
         ${img}
         <div class="absolute top-2 left-2 flex flex-col gap-1">
           <span class="text-white text-xs font-black px-2 py-0.5 rounded-lg ${discClass} w-fit">−${p.discount_pct}%</span>
-          <span class="text-white text-xs font-bold px-2 py-0.5 rounded-md w-fit" style="background:rgba(0,0,0,0.55)">Save $${saving}</span>
+          <span class="text-white text-xs font-bold px-2 py-0.5 rounded-md w-fit" style="background:rgba(0,0,0,0.55)">Save ${sym}${saving}</span>
         </div>
+        ${countryFlag ? `<div class="absolute top-2 right-2 text-lg leading-none">${countryFlag}</div>` : ''}
       </div>
       <div class="p-3 card-body">
         <div class="flex items-center justify-between mb-1.5">
@@ -458,8 +479,8 @@
         </div>
         <p class="text-sm font-semibold text-gray-800 leading-snug mb-auto line-clamp-2">${esc(p.name)}</p>
         <div class="flex items-baseline gap-2 mt-2">
-          <span class="text-base font-black text-gray-900">$${p.sale_price.toFixed(2)}</span>
-          <span class="text-xs text-gray-400 line-through font-medium">$${p.original_price.toFixed(2)}</span>
+          <span class="text-base font-black text-gray-900">${sym}${p.sale_price.toFixed(2)}</span>
+          <span class="text-xs text-gray-400 line-through font-medium">${sym}${p.original_price.toFixed(2)}</span>
         </div>
       </div>
     </a>`;
@@ -488,6 +509,7 @@
   // ── Active chips ─────────────────────────────
   function updateActiveChips() {
     const chips = [];
+    if (activeFilters.country !== 'all') chips.push([`Country: ${activeFilters.country==='IN'?'🇮🇳 India':'🇺🇸 US'}`, ()=>{ setFilter('country','all',document.querySelector('[data-filter="country"][data-value="all"]')); }]);
     if (activeFilters.brand !== 'all') chips.push([`Brand: ${activeFilters.brand}`, ()=>{ setFilter('brand','all',document.querySelector('[data-filter="brand"][data-value="all"]')); }]);
     if (activeFilters.gender !== 'all') chips.push([`Gender: ${activeFilters.gender}`, ()=>{ setFilter('gender','all',document.querySelector('[data-filter="gender"][data-value="all"]')); }]);
     if (activeFilters.cat !== 'all') chips.push([`Type: ${activeFilters.cat}`, ()=>{ setFilter('cat','all',document.querySelector('[data-filter="cat"][data-value="all"]')); }]);
@@ -503,7 +525,7 @@
 
   // ── Misc ─────────────────────────────────────
   function clearAllFilters() {
-    activeFilters = { brand:'all', gender:'all', size:'all', cat:'all' };
+    activeFilters = { country:'all', brand:'all', gender:'all', size:'all', cat:'all' };
     activeDisc = 0;
     searchQ = '';
     document.getElementById('search-input').value = '';

@@ -60,6 +60,8 @@ def fetch_sale_products():
                             "category": item.get("product_type", ""),
                             "gender": _parse_gender(item.get("tags", [])),
                             "sizes": _parse_sizes(item.get("options", [])),
+                            "country": "US",
+                            "currency_symbol": "$",
                         })
                         break
             page += 1

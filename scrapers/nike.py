@@ -125,16 +125,19 @@ def _fetch_category(start_api_path, gender, country, currency_symbol, site_base)
     count = 24
     base_url = next_path.split("anchor=")[0]
     anchors = list(range(24, total_resources, count))
-    print(f"Nike {country}/{gender}: {total_resources} total, {len(anchors)} pages to fetch")
+    print(f"Nike {country}/{gender}: {total_resources} total, fetching {len(anchors)} pages")
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {
             executor.submit(_fetch_page, f"{base_url}anchor={anchor}&count={count}",
                             gender, country, currency_symbol, site_base): anchor
             for anchor in anchors
         }
         for future in as_completed(futures):
-            products.extend(future.result())
+            try:
+                products.extend(future.result())
+            except Exception as e:
+                print(f"Nike {country}/{gender} page failed: {e}")
 
     return products
 

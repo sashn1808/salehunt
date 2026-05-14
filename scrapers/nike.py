@@ -126,7 +126,7 @@ def _fetch_category(start_api_path, gender):
 
     print(f"Nike {gender}: {total_resources} total, fetching {len(anchors)} more pages concurrently")
 
-    with ThreadPoolExecutor(max_workers=20) as executor:
+    with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(_fetch_page, f"{base_url}anchor={anchor}&count={count}", gender): anchor
             for anchor in anchors

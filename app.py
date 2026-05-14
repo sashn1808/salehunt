@@ -36,16 +36,19 @@ def index():
 def all_products():
     results = []
     errors = {}
+    lock = __import__("threading").Lock()
 
     def fetch_brand(brand_name, fetch_fn):
         cached = _get_cached(brand_name)
         if cached is not None:
-            results.extend(cached)
+            with lock:
+                results.extend(cached)
             return
         try:
             items = fetch_fn()
             _set_cache(brand_name, items)
-            results.extend(items)
+            with lock:
+                results.extend(items)
         except Exception as e:
             errors[brand_name] = str(e)
 

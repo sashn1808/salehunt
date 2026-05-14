@@ -12,10 +12,24 @@ HEADERS = {
 }
 
 API_BASE = "https://api.nike.com"
+CONSUMER_CHANNEL = "d9a5bc42-4b9c-4976-858a-f159cf99c647"
+BASE_WALL = f"/discover/product_wall/v1/marketplace/US/language/en/consumerChannelId/{CONSUMER_CHANNEL}"
 
+# These URL patterns were extracted from Nike's own __NEXT_DATA__ API responses.
+# The path and attributeIds are stable identifiers for the sale + gender categories.
 SALE_CATEGORIES = [
-    ("https://www.nike.com/w/mens-sale-3yaepznik1",   "Men"),
-    ("https://www.nike.com/w/womens-sale-3yaepz5e1x", "Women"),
+    (
+        f"{BASE_WALL}?path=/w/mens-sale-3yaepznik1"
+        f"&attributeIds=0f64ecc7-d624-4e91-b171-b83a03dd8550,5b21a62a-0503-400c-8336-3ccfbff2a684"
+        f"&queryType=PRODUCTS&count=24&anchor=0",
+        "Men",
+    ),
+    (
+        f"{BASE_WALL}?path=/w/sale-3yaep"
+        f"&attributeIds=5b21a62a-0503-400c-8336-3ccfbff2a684"
+        f"&queryType=PRODUCTS&count=24&anchor=0",
+        "Women",
+    ),
 ]
 
 
@@ -68,10 +82,10 @@ def _parse_groupings(groupings, fallback_gender="Unisex"):
     return products
 
 
-def _fetch_page(url, gender):
+def _fetch_page(api_path, gender):
     """Fetch a single paginated API page and return its products."""
     try:
-        r = requests.get(API_BASE + url, headers=HEADERS, timeout=12)
+        r = requests.get(API_BASE + api_path, headers=HEADERS, timeout=15)
         if r.status_code != 200:
             return []
         return _parse_groupings(r.json().get("productGroupings", []), gender)
@@ -79,22 +93,25 @@ def _fetch_page(url, gender):
         return []
 
 
-def _fetch_category(start_url, gender):
+def _fetch_category(start_api_path, gender):
+    """
+    Fetch all products for a sale category directly via the Nike product wall API.
+    No HTML scraping needed — works from cloud server IPs.
+    """
     products = []
 
-    # Page 1 — from the HTML (has total page count)
+    # Page 1 (anchor=0) — fetch directly from the API
     try:
-        r = requests.get(start_url, headers=HEADERS, timeout=15)
-        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', r.text, re.DOTALL)
-        if not match:
+        r = requests.get(API_BASE + start_api_path, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            print(f"Nike {gender} page 1 error: HTTP {r.status_code}")
             return products
-        data = json.loads(match.group(1))
-        wall = data["props"]["pageProps"]["initialState"]["Wall"]
-        products.extend(_parse_groupings(wall.get("productGroupings", []), gender))
+        d = r.json()
+        products.extend(_parse_groupings(d.get("productGroupings", []), gender))
 
-        page_data = wall.get("pageData", {})
-        total_resources = page_data.get("totalResources", 0)
-        next_path = page_data.get("next", "")
+        pages = d.get("pages", {})
+        total_resources = pages.get("totalResources", 0)
+        next_path = pages.get("next", "")
     except Exception as e:
         print(f"Nike {gender} initial load error: {e}")
         return products
@@ -102,14 +119,13 @@ def _fetch_category(start_url, gender):
     if not next_path or not total_resources:
         return products
 
-    # Build all remaining page URLs upfront using anchor stepping
-    # Extract base URL and count from the next_path
+    # Build all remaining page URLs from anchor=24 upward
     count = 24
     base_url = next_path.split("anchor=")[0]
-    # We know anchor=24 is page 2; generate all remaining anchors
     anchors = list(range(24, total_resources, count))
 
-    # Fetch all pages concurrently (cap at 20 workers to be respectful)
+    print(f"Nike {gender}: {total_resources} total, fetching {len(anchors)} more pages concurrently")
+
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {
             executor.submit(_fetch_page, f"{base_url}anchor={anchor}&count={count}", gender): anchor
@@ -125,12 +141,13 @@ def fetch_sale_products():
     seen = set()
     all_products = []
 
-    for url, gender in SALE_CATEGORIES:
-        items = _fetch_category(url, gender)
+    for api_path, gender in SALE_CATEGORIES:
+        items = _fetch_category(api_path, gender)
         for p in items:
             uid = p.pop("_id", p["name"])
             if uid not in seen:
                 seen.add(uid)
                 all_products.append(p)
 
+    print(f"Nike total: {len(all_products)} products")
     return all_products

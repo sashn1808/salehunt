@@ -23,13 +23,15 @@ def _parse_sizes(options):
             return opt.get("values", [])
     return []
 
-def fetch_sale_products(max_pages=3):
+def fetch_sale_products():
     products = []
-    for page in range(1, max_pages + 1):
+    page = 1
+    while True:
         try:
             url = f"https://www.reebok.com/collections/sale/products.json?page={page}&limit=30"
             r = requests.get(url, headers=HEADERS, timeout=10)
             if r.status_code != 200:
+                print(f"Reebok page {page} HTTP {r.status_code}, stopping")
                 break
             data = r.json()
             items = data.get("products", [])
@@ -60,7 +62,9 @@ def fetch_sale_products(max_pages=3):
                             "sizes": _parse_sizes(item.get("options", [])),
                         })
                         break
+            page += 1
         except Exception as e:
             print(f"Reebok page {page} error: {e}")
             break
+    print(f"Reebok total: {len(products)} products")
     return products

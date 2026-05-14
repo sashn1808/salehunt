@@ -31,17 +31,10 @@ SALE_CATEGORIES = [
                   "5b21a62a-0503-400c-8336-3ccfbff2a684"),
         "Women", "US", "$", "https://www.nike.com",
     ),
-    # --- India ---
-    (
-        _wall_url("IN", "en-GB", "/in/w/mens-sale-3yaepznik1",
-                  "0f64ecc7-d624-4e91-b171-b83a03dd8550,5b21a62a-0503-400c-8336-3ccfbff2a684"),
-        "Men", "IN", "₹", "https://www.nike.com/in",
-    ),
-    (
-        _wall_url("IN", "en-GB", "/in/w/sale-3yaep",
-                  "5b21a62a-0503-400c-8336-3ccfbff2a684"),
-        "Women", "IN", "₹", "https://www.nike.com/in",
-    ),
+    # Note: Nike does not operate a direct India marketplace — nike.com/in
+    # redirects to nike.in (a 3rd-party reseller), and the IN API returns 0
+    # products. Same for many other markets. Adding more countries requires
+    # finding a brand+region combo that actually sells direct.
 ]
 
 
@@ -103,7 +96,7 @@ def _fetch_page(api_path, gender, country, currency_symbol, site_base):
         r = requests.get(API_BASE + api_path, headers=HEADERS, timeout=15)
         if r.status_code != 200:
             return []
-        return _parse_groupings(r.json().get("productGroupings", []), gender, country, currency_symbol, site_base)
+        return _parse_groupings(r.json().get("productGroupings") or [], gender, country, currency_symbol, site_base)
     except Exception:
         return []
 
@@ -117,7 +110,7 @@ def _fetch_category(start_api_path, gender, country, currency_symbol, site_base)
             print(f"Nike {country}/{gender} page 1 error: HTTP {r.status_code}")
             return products
         d = r.json()
-        products.extend(_parse_groupings(d.get("productGroupings", []), gender, country, currency_symbol, site_base))
+        products.extend(_parse_groupings(d.get("productGroupings") or [], gender, country, currency_symbol, site_base))
 
         pages = d.get("pages", {})
         total_resources = pages.get("totalResources", 0)
